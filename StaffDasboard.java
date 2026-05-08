@@ -33,6 +33,7 @@ public class StaffDashboard extends JFrame {
     private static final Color CARD_BORDER  = new Color(130,  60, 255, 80);
     private static final Color SUCCESS_COL  = new Color( 80, 220, 120);
     private static final Color ERROR_COL    = new Color(255,  80,  80);
+    private static final Color WARN_COL     = new Color(255, 180,  60);
     private static final Color SIDEBAR_BG   = new Color(10,   5,  28, 240);
     private static final Color SIDEBAR_ACT  = new Color(130,  60, 255, 160);
 
@@ -50,10 +51,25 @@ public class StaffDashboard extends JFrame {
     private JPanel[] pages;
     private JButton[] sideItems;
 
+    // Leave-request badge on sidebar button
+    private JLabel leaveRequestBadge;
+
     private String staffName="", staffEmail="", staffGender="", staffAddress="";
     private String staffDOB="", staffAge="0", staffDesignation="", deptName="";
 
     private javax.swing.Timer autoRefreshTimer;
+
+    // ── page count: incharge gets extra pages for Create Club Event,
+    //   Create Staff Event, AND Leave Requests  (9 + 1 = 10)
+    // non-incharge: 7 pages (unchanged)
+    private static final int INCHARGE_PAGE_COUNT    = 10;
+    private static final int NON_INCHARGE_PAGE_COUNT = 7;
+
+    // ── page indices for incharge ──
+    // 0 Overview | 1 MyClubs | 2 ManagedEvents | 3 CreateClubEvent
+    // 4 CreateStaffEvent | 5 Participants | 6 Attendance | 7 Certificates
+    // 8 LeaveRequests | (was 8 before, now 9 is unused / or MyAttendance if needed)
+    // Note: non-incharge has MyAttendance at slot 6
 
     public StaffDashboard(int userId, String userName,
                           String dbUrl, String dbUser, String dbPass) {
@@ -99,7 +115,7 @@ public class StaffDashboard extends JFrame {
         contentArea.setBounds(SIDEBAR_W_PX,TOP_H,cW,cH);
         rootLayer.add(contentArea);
 
-        int pageCount = isIncharge ? 9 : 7;
+        int pageCount = isIncharge ? INCHARGE_PAGE_COUNT : NON_INCHARGE_PAGE_COUNT;
         pages=new JPanel[pageCount];
         for (int i=0;i<pageCount;i++){
             pages[i]=new JPanel(null); pages[i].setOpaque(false);
@@ -113,16 +129,17 @@ public class StaffDashboard extends JFrame {
             buildManagedEventsPage(scr);
 
             if (isIncharge) {
-                buildCreateClubEventPage(scr);
-                buildCreateStaffEventPage(scr);
-                buildParticipantsPage(scr);
-                buildAttendancePage(scr);
-                buildCertificatesPage(scr);
+                buildCreateClubEventPage(scr);   // page 3
+                buildCreateStaffEventPage(scr);  // page 4
+                buildParticipantsPage(scr);      // page 5
+                buildAttendancePage(scr);        // page 6
+                buildCertificatesPage(scr);      // page 7
+                buildLeaveRequestsPage(scr);     // page 8  ← NEW
             } else {
-                buildParticipantsPage(scr);
-                buildAttendancePage(scr);
-                buildCertificatesPage(scr);
-                buildMyAttendancePage(scr);
+                buildParticipantsPage(scr);      // page 3
+                buildAttendancePage(scr);        // page 4
+                buildCertificatesPage(scr);      // page 5
+                buildMyAttendancePage(scr);      // page 6
             }
 
             startAutoRefresh();
@@ -140,13 +157,20 @@ public class StaffDashboard extends JFrame {
             if (curPage == 2) refreshManagedEventsPage();
             int attendanceIdx = isIncharge ? 6 : 4;
             if (curPage == attendanceIdx) refreshAttendancePage();
+            if (isIncharge && curPage == 8) refreshLeaveRequestsPage();
         });
         autoRefreshTimer.start();
+
+        // poll pending count every 20 s to keep badge fresh
+        if (isIncharge) {
+            new javax.swing.Timer(20000, e -> updateLeaveRequestBadge()).start();
+        }
     }
 
     private void refreshMyClubsPage()       { buildMyClubsPage(Toolkit.getDefaultToolkit().getScreenSize()); }
     private void refreshManagedEventsPage() { buildManagedEventsPage(Toolkit.getDefaultToolkit().getScreenSize()); }
     private void refreshAttendancePage()    { buildAttendancePage(Toolkit.getDefaultToolkit().getScreenSize()); }
+    private void refreshLeaveRequestsPage() { buildLeaveRequestsPage(Toolkit.getDefaultToolkit().getScreenSize()); }
 
     // ══════════════════════════════════════════════════════════════
     //  TOP BAR
@@ -219,6 +243,7 @@ public class StaffDashboard extends JFrame {
                 {"\uD83D\uDC65","Participants"},
                 {"\u270D","Mark Attendance"},
                 {"\uD83C\uDFAB","Certificates"},
+                {"\uD83D\uDCEC","Leave Requests"},
               }
             : new String[][]{
                 {"\uD83C\uDFE0","Overview"},
@@ -237,9 +262,56 @@ public class StaffDashboard extends JFrame {
             sideItems[i]=sidebarButton(menu[i][0]+" "+menu[i][1],i==0);
             sideItems[i].setBounds(12,my,SIDEBAR_W_PX-24,40);
             sideItems[i].addActionListener(e->navigateTo(idx));
-            sidebar.add(sideItems[i]); my+=46;
+            sidebar.add(sideItems[i]);
+
+            // Attach badge label to the "Leave Requests" button (incharge, index 8)
+            if (isIncharge && i == 8) {
+                leaveRequestBadge = new JLabel("") {
+                    @Override protected void paintComponent(Graphics g) {
+                        if (getText().isEmpty()) return;
+                        Graphics2D g2 = (Graphics2D)g;
+                        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                        g2.setColor(new Color(255, 60, 60));
+                        g2.fillOval(0, 0, getWidth()-1, getHeight()-1);
+                        g2.setColor(Color.WHITE);
+                        g2.setFont(new Font("SansSerif", Font.BOLD, 10));
+                        FontMetrics fm = g2.getFontMetrics();
+                        String t = getText();
+                        g2.drawString(t, getWidth()/2 - fm.stringWidth(t)/2,
+                            getHeight()/2 + fm.getAscent()/2 - 2);
+                    }
+                };
+                leaveRequestBadge.setOpaque(false);
+                leaveRequestBadge.setBounds(SIDEBAR_W_PX - 34, my + 10, 18, 18);
+                sidebar.add(leaveRequestBadge);
+                updateLeaveRequestBadge();
+            }
+
+            my+=46;
         }
         rootLayer.add(sidebar);
+    }
+
+    // ── Update the red badge count on the Leave Requests sidebar button ──
+    private void updateLeaveRequestBadge() {
+        if (!isIncharge || leaveRequestBadge == null) return;
+        new Thread(() -> {
+            try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+                PreparedStatement ps = con.prepareStatement(
+                    "SELECT COUNT(*) FROM club_leave_request clr " +
+                    "JOIN club c ON clr.club_id = c.club_id " +
+                    "JOIN members_in mi ON c.club_id = mi.club_id " +
+                    "WHERE mi.user_id = ? AND mi.role_type = 'staff_incharge' " +
+                    "AND clr.status = 'Pending'");
+                ps.setInt(1, userId);
+                ResultSet rs = ps.executeQuery();
+                int count = rs.next() ? rs.getInt(1) : 0;
+                SwingUtilities.invokeLater(() -> {
+                    leaveRequestBadge.setText(count > 0 ? String.valueOf(count) : "");
+                    leaveRequestBadge.repaint();
+                });
+            } catch (SQLException ignored) {}
+        }).start();
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -367,6 +439,21 @@ public class StaffDashboard extends JFrame {
             st.setBounds(scX+i*(scW+scGap),scY,scW,scH); content.add(st);
             loadStatCount(stats[i][2],st);
         }
+
+        // Pending leave requests mini-card for incharge
+        if (isIncharge) {
+            JPanel lrCard = glassCard();
+            lrCard.setBounds(scX, scY + scH + 16, W - scX - 32, 70); content.add(lrCard);
+            JLabel lrIcon = makeLabel("📨", new Font("Segoe UI Emoji", Font.PLAIN, 20), WARN_COL);
+            lrIcon.setBounds(16, 20, 30, 30); lrCard.add(lrIcon);
+            JLabel lrTxt = makeLabel("Pending leave requests from students — click 'Leave Requests' in the sidebar to review.",
+                new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+            lrTxt.setBounds(54, 22, W - scX - 100, 26); lrCard.add(lrTxt);
+            JButton lrBtn = buildButton("Go to Leave Requests →", true);
+            lrBtn.setBounds(W - scX - 230, 18, 196, 34); lrCard.add(lrBtn);
+            lrBtn.addActionListener(e -> navigateTo(8));
+        }
+
         content.revalidate(); content.repaint();
     }
 
@@ -690,46 +777,95 @@ public class StaffDashboard extends JFrame {
         pg.removeAll();
         pageTitle(pg,"Event Participants",W);
 
-        JLabel evLbl=makeLabel("Select Event:",new Font("SansSerif",Font.PLAIN,12),TEXT_MUTED);
-        evLbl.setBounds(24,66,130,24); pg.add(evLbl);
-        JComboBox<String> evCombo=styledCombo(new String[]{"-- Loading --"});
-        evCombo.setBounds(160,62,400,38); pg.add(evCombo);
+        // ── Row 1: Club filter (incharge only) ───────────────────
+        int evRow = 62;
+        if (isIncharge) {
+            JLabel clubLbl=makeLabel("Select Club:",new Font("SansSerif",Font.PLAIN,12),TEXT_MUTED);
+            clubLbl.setBounds(24,66,110,24); pg.add(clubLbl);
+            JComboBox<String> clubCombo=styledCombo(new String[]{"-- Loading --"});
+            clubCombo.setBounds(140,62,280,38); pg.add(clubCombo);
 
-        JLabel intLbl=makeLabel("Internal Participants (Students)",
-            new Font("Georgia",Font.BOLD|Font.ITALIC,15),ACCENT_LIGHT);
-        intLbl.setBounds(24,112,W-48,22); pg.add(intLbl);
+            JLabel evLbl=makeLabel("Select Event:",new Font("SansSerif",Font.PLAIN,12),TEXT_MUTED);
+            evLbl.setBounds(434,66,110,24); pg.add(evLbl);
+            JComboBox<String> evCombo=styledCombo(new String[]{"-- Select Club First --"});
+            evCombo.setBounds(550,62,380,38); pg.add(evCombo);
 
-        String[] c1={"User ID","Name","Reg No","Year","Section","Email","Reg Date","Status"};
-        DefaultTableModel m1=noEditModel(c1); JTable t1=new JTable(m1); styleTable(t1);
-        int tableH=(H-200)/2;
-        pg.add(spAt(styledTableScroll(t1),24,138,W-48,tableH));
+            JLabel intLbl=makeLabel("Internal Participants (Students)",
+                new Font("Georgia",Font.BOLD|Font.ITALIC,15),ACCENT_LIGHT);
+            intLbl.setBounds(24,112,W-48,22); pg.add(intLbl);
+            String[] c1={"User ID","Name","Reg No","Year","Section","Email","Reg Date","Status"};
+            DefaultTableModel m1=noEditModel(c1); JTable t1=new JTable(m1); styleTable(t1);
+            int tableH=(H-200)/2;
+            pg.add(spAt(styledTableScroll(t1),24,138,W-48,tableH));
+            JLabel extLbl=makeLabel("External Participants",
+                new Font("Georgia",Font.BOLD|Font.ITALIC,15),GOLD);
+            extLbl.setBounds(24,138+tableH+10,W-48,22); pg.add(extLbl);
+            String[] c2={"User ID","Name","Organisation","Role Type","Phone","Reg Date"};
+            DefaultTableModel m2=noEditModel(c2); JTable t2=new JTable(m2); styleTable(t2);
+            pg.add(spAt(styledTableScroll(t2),24,138+tableH+36,W-48,tableH-20));
 
-        JLabel extLbl=makeLabel("External Participants (Guests — Staff Events Only)",
-            new Font("Georgia",Font.BOLD|Font.ITALIC,15),GOLD);
-        extLbl.setBounds(24,138+tableH+10,W-48,22); pg.add(extLbl);
+            loadStaffInchargeClubsCombo(clubCombo);
 
-        String[] c2={"User ID","Name","Organisation","Role Type","Phone","Reg Date"};
-        DefaultTableModel m2=noEditModel(c2); JTable t2=new JTable(m2); styleTable(t2);
-        pg.add(spAt(styledTableScroll(t2),24,138+tableH+36,W-48,tableH-20));
-
-        boolean[] loading = {true};
-        loadEventsCombo(evCombo, () -> { loading[0] = false; });
-
-        evCombo.addActionListener(e -> {
-            if (loading[0]) return;
-            String sel=(String)evCombo.getSelectedItem();
-            if (sel==null||sel.startsWith("--")) return;
-            try {
-                int evId=Integer.parseInt(sel.split("\\|")[0].trim());
+            clubCombo.addActionListener(e -> {
+                String csel=(String)clubCombo.getSelectedItem();
                 m1.setRowCount(0); m2.setRowCount(0);
-                if (sel.contains("[Club]")) {
-                    loadClubInternalParticipants(evId, m1);
-                } else {
-                    loadInternalParticipants(evId, m1);
-                    loadExternalParticipants(evId, m2);
+                evCombo.removeAllItems();
+                if (csel==null||csel.startsWith("--")) {
+                    evCombo.addItem("-- Select Club First --"); return;
                 }
-            } catch (Exception ex){}
-        });
+                try {
+                    int clubId=Integer.parseInt(csel.split("\\|")[0].trim());
+                    loadEventsForClub(clubId, evCombo);
+                } catch (Exception ex) { evCombo.addItem("-- Error --"); }
+            });
+
+            evCombo.addActionListener(e -> {
+                String sel=(String)evCombo.getSelectedItem();
+                if (sel==null||sel.startsWith("--")) return;
+                try {
+                    int evId=Integer.parseInt(sel.split("\\|")[0].trim());
+                    m1.setRowCount(0); m2.setRowCount(0);
+                    loadClubInternalParticipants(evId, m1);
+                } catch (Exception ex){}
+            });
+
+        } else {
+            // Non-incharge: original single event dropdown
+            JLabel evLbl=makeLabel("Select Event:",new Font("SansSerif",Font.PLAIN,12),TEXT_MUTED);
+            evLbl.setBounds(24,66,130,24); pg.add(evLbl);
+            JComboBox<String> evCombo=styledCombo(new String[]{"-- Loading --"});
+            evCombo.setBounds(160,62,400,38); pg.add(evCombo);
+            JLabel intLbl=makeLabel("Internal Participants (Students)",
+                new Font("Georgia",Font.BOLD|Font.ITALIC,15),ACCENT_LIGHT);
+            intLbl.setBounds(24,112,W-48,22); pg.add(intLbl);
+            String[] c1={"User ID","Name","Reg No","Year","Section","Email","Reg Date","Status"};
+            DefaultTableModel m1=noEditModel(c1); JTable t1=new JTable(m1); styleTable(t1);
+            int tableH=(H-200)/2;
+            pg.add(spAt(styledTableScroll(t1),24,138,W-48,tableH));
+            JLabel extLbl=makeLabel("External Participants (Guests — Staff Events Only)",
+                new Font("Georgia",Font.BOLD|Font.ITALIC,15),GOLD);
+            extLbl.setBounds(24,138+tableH+10,W-48,22); pg.add(extLbl);
+            String[] c2={"User ID","Name","Organisation","Role Type","Phone","Reg Date"};
+            DefaultTableModel m2=noEditModel(c2); JTable t2=new JTable(m2); styleTable(t2);
+            pg.add(spAt(styledTableScroll(t2),24,138+tableH+36,W-48,tableH-20));
+            boolean[] loading = {true};
+            loadEventsCombo(evCombo, () -> { loading[0] = false; });
+            evCombo.addActionListener(e -> {
+                if (loading[0]) return;
+                String sel=(String)evCombo.getSelectedItem();
+                if (sel==null||sel.startsWith("--")) return;
+                try {
+                    int evId=Integer.parseInt(sel.split("\\|")[0].trim());
+                    m1.setRowCount(0); m2.setRowCount(0);
+                    if (sel.contains("[Club]")) {
+                        loadClubInternalParticipants(evId, m1);
+                    } else {
+                        loadInternalParticipants(evId, m1);
+                        loadExternalParticipants(evId, m2);
+                    }
+                } catch (Exception ex){}
+            });
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -742,10 +878,38 @@ public class StaffDashboard extends JFrame {
         pg.removeAll();
         pageTitle(pg, "Mark Attendance", W);
 
-        JLabel evLbl = makeLabel("Select Event:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
-        evLbl.setBounds(24, 66, 130, 24); pg.add(evLbl);
-        JComboBox<String> evCombo = styledCombo(new String[]{"-- Loading --"});
-        evCombo.setBounds(160, 62, 440, 38); pg.add(evCombo);
+        // ── Club filter (incharge only) ───────────────────────────
+        JComboBox<String> evCombo;
+        if (isIncharge) {
+            JLabel clubLbl = makeLabel("Select Club:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+            clubLbl.setBounds(24, 66, 110, 24); pg.add(clubLbl);
+            JComboBox<String> clubCombo = styledCombo(new String[]{"-- Loading --"});
+            clubCombo.setBounds(140, 62, 260, 38); pg.add(clubCombo);
+
+            JLabel evLbl = makeLabel("Select Event:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+            evLbl.setBounds(412, 66, 110, 24); pg.add(evLbl);
+            evCombo = styledCombo(new String[]{"-- Select Club First --"});
+            evCombo.setBounds(528, 62, 360, 38); pg.add(evCombo);
+
+            loadStaffInchargeClubsCombo(clubCombo);
+            JComboBox<String> finalEvCombo = evCombo;
+            clubCombo.addActionListener(e -> {
+                String csel = (String) clubCombo.getSelectedItem();
+                finalEvCombo.removeAllItems();
+                if (csel == null || csel.startsWith("--")) {
+                    finalEvCombo.addItem("-- Select Club First --"); return;
+                }
+                try {
+                    int clubId = Integer.parseInt(csel.split("\\|")[0].trim());
+                    loadEventsForClub(clubId, finalEvCombo);
+                } catch (Exception ex) { finalEvCombo.addItem("-- Error --"); }
+            });
+        } else {
+            JLabel evLbl = makeLabel("Select Event:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+            evLbl.setBounds(24, 66, 130, 24); pg.add(evLbl);
+            evCombo = styledCombo(new String[]{"-- Loading --"});
+            evCombo.setBounds(160, 62, 440, 38); pg.add(evCombo);
+        }
 
         JLabel counterLbl = makeLabel("", new Font("SansSerif", Font.BOLD, 13), TEXT_MUTED);
         counterLbl.setBounds(24, 106, W - 48, 22); pg.add(counterLbl);
@@ -758,7 +922,7 @@ public class StaffDashboard extends JFrame {
         refreshBtn .setBounds(320, 134, 120, 34);
         pg.add(selAllBtn); pg.add(deselAllBtn); pg.add(refreshBtn);
 
-        JLabel infoLbl = makeLabel("Select an event to mark attendance",
+        JLabel infoLbl = makeLabel("Select a club and event to mark attendance",
             new Font("SansSerif", Font.BOLD, 12), TEXT_MUTED);
         infoLbl.setBounds(24, H - 80, W - 48, 70);
         infoLbl.setVerticalAlignment(SwingConstants.TOP);
@@ -814,84 +978,76 @@ public class StaffDashboard extends JFrame {
         JButton saveBtn = buildButton("💾 Save Attendance", true);
         saveBtn.setBounds(24, H - 130, 220, 48); pg.add(saveBtn);
 
-        boolean[] loading = {true};
         int[] currentEventId = {-1};
-        boolean[] isClubEvent = {false};
 
-        loadEventsCombo(evCombo, () -> { loading[0] = false; });
+        if (!isIncharge) {
+            boolean[] loading = {true};
+            loadEventsCombo(evCombo, () -> { loading[0] = false; });
+            evCombo.addActionListener(e -> {
+                if (loading[0]) return;
+                String sel = (String) evCombo.getSelectedItem();
+                if (sel == null || sel.startsWith("--")) {
+                    infoLbl.setForeground(TEXT_MUTED);
+                    infoLbl.setText("Select an event to mark attendance");
+                    model.setRowCount(0); counterLbl.setText(""); currentEventId[0] = -1; return;
+                }
+                stopEditing(table); model.setRowCount(0); counterLbl.setText("");
+                try {
+                    int evId = Integer.parseInt(sel.split("\\|")[0].trim());
+                    currentEventId[0] = evId;
+                    if (sel.contains("[Club]"))
+                        loadClubParticipantsForAttendance(evId, model, infoLbl, counterLbl);
+                    else
+                        loadParticipantsForAttendance(evId, model, infoLbl, counterLbl);
+                } catch (Exception ex) { infoLbl.setForeground(ERROR_COL); infoLbl.setText("Error: "+ex.getMessage()); }
+            });
+        } else {
+            evCombo.addActionListener(e -> {
+                String sel = (String) evCombo.getSelectedItem();
+                if (sel == null || sel.startsWith("--")) {
+                    infoLbl.setForeground(TEXT_MUTED);
+                    infoLbl.setText("Select a club and event to mark attendance");
+                    model.setRowCount(0); counterLbl.setText(""); currentEventId[0] = -1; return;
+                }
+                stopEditing(table); model.setRowCount(0); counterLbl.setText("");
+                try {
+                    int evId = Integer.parseInt(sel.split("\\|")[0].trim());
+                    currentEventId[0] = evId;
+                    loadClubParticipantsForAttendance(evId, model, infoLbl, counterLbl);
+                } catch (Exception ex) { infoLbl.setForeground(ERROR_COL); infoLbl.setText("Error: "+ex.getMessage()); }
+            });
+        }
 
         selAllBtn.addActionListener(e -> {
             stopEditing(table);
             for (int i = 0; i < model.getRowCount(); i++) model.setValueAt(true, i, 6);
             table.repaint();
         });
-
         deselAllBtn.addActionListener(e -> {
             stopEditing(table);
             for (int i = 0; i < model.getRowCount(); i++) model.setValueAt(false, i, 6);
             table.repaint();
         });
-
         refreshBtn.addActionListener(e -> {
             if (currentEventId[0] < 0) return;
-            stopEditing(table);
-            model.setRowCount(0);
-            counterLbl.setText("");
-            if (isClubEvent[0])
-                loadClubParticipantsForAttendance(currentEventId[0], model, infoLbl, counterLbl);
-            else
-                loadParticipantsForAttendance(currentEventId[0], model, infoLbl, counterLbl);
-        });
-
-        evCombo.addActionListener(e -> {
-            if (loading[0]) return;
-            String sel = (String) evCombo.getSelectedItem();
-            if (sel == null || sel.startsWith("--")) {
-                infoLbl.setForeground(TEXT_MUTED);
-                infoLbl.setText("Select an event to mark attendance");
-                model.setRowCount(0);
-                counterLbl.setText("");
-                currentEventId[0] = -1;
-                return;
-            }
-            stopEditing(table);
-            model.setRowCount(0);
-            counterLbl.setText("");
-            try {
-                int evId = Integer.parseInt(sel.split("\\|")[0].trim());
-                currentEventId[0] = evId;
-                isClubEvent[0] = sel.contains("[Club]");
-                if (isClubEvent[0])
-                    loadClubParticipantsForAttendance(evId, model, infoLbl, counterLbl);
-                else
-                    loadParticipantsForAttendance(evId, model, infoLbl, counterLbl);
-            } catch (Exception ex) {
-                infoLbl.setForeground(ERROR_COL);
-                infoLbl.setText("Error: " + ex.getMessage());
-            }
+            stopEditing(table); model.setRowCount(0); counterLbl.setText("");
+            loadClubParticipantsForAttendance(currentEventId[0], model, infoLbl, counterLbl);
         });
 
         saveBtn.addActionListener(e -> {
             if (currentEventId[0] < 0) {
-                infoLbl.setForeground(ERROR_COL);
-                infoLbl.setText("Select an event first.");
-                return;
+                infoLbl.setForeground(ERROR_COL); infoLbl.setText("Select an event first."); return;
             }
             stopEditing(table);
-
             if (model.getRowCount() == 0) {
-                infoLbl.setForeground(ERROR_COL);
-                infoLbl.setText("No participants loaded — cannot save.");
-                return;
+                infoLbl.setForeground(ERROR_COL); infoLbl.setText("No participants loaded — cannot save."); return;
             }
-
             Map<Integer, String> attendanceMap = new LinkedHashMap<>();
             for (int i = 0; i < model.getRowCount(); i++) {
                 int uid = (int) model.getValueAt(i, 0);
                 boolean present = Boolean.TRUE.equals(model.getValueAt(i, 6));
                 attendanceMap.put(uid, present ? "Present" : "Absent");
             }
-
             saveAttendance(currentEventId[0], attendanceMap, infoLbl, counterLbl, model);
         });
     }
@@ -912,47 +1068,61 @@ public class StaffDashboard extends JFrame {
     }
 
     private void loadParticipantsForAttendance(int eventId, DefaultTableModel model,
-                                                JLabel infoLbl, JLabel counterLbl) {
-        new Thread(() -> {
-            try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
-                PreparedStatement ps = con.prepareStatement(
-                    "SELECT u.user_id, u.name, " +
-                    "NVL(s.reg_num,'—'), NVL(TO_CHAR(s.year),'—'), NVL(s.section,'—'), u.email, " +
-                    "NVL((SELECT sa.attendance_status FROM student_attendance sa " +
-                    "     WHERE sa.event_id=? AND sa.user_id=u.user_id), 'Not Marked') " +
-                    "FROM staff_event_registration ser " +
-                    "JOIN users u ON ser.user_id=u.user_id " +
-                    "LEFT JOIN student s ON ser.user_id=s.user_id " +
-                    "WHERE ser.event_id=? ORDER BY u.name");
-                ps.setInt(1, eventId); ps.setInt(2, eventId);
-                ResultSet rs = ps.executeQuery();
+                                            JLabel infoLbl, JLabel counterLbl) {
+    new Thread(() -> {
+        try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
 
-                java.util.List<Object[]> rows = new java.util.ArrayList<>();
-                while (rs.next()) {
-                    boolean present = "Present".equalsIgnoreCase(rs.getString(7));
-                    rows.add(new Object[]{ rs.getInt(1), rs.getString(2), rs.getString(3),
-                        rs.getString(4), rs.getString(5), rs.getString(6), present });
-                }
-
-                SwingUtilities.invokeLater(() -> {
-                    for (Object[] row : rows) model.addRow(row);
-                    updateCounter(model, counterLbl);
-                    if (rows.isEmpty()) {
-                        infoLbl.setForeground(new Color(255, 160, 60));
-                        infoLbl.setText("⚠ No registrations found for this event.");
-                    } else {
-                        infoLbl.setForeground(SUCCESS_COL);
-                        infoLbl.setText("✅ " + rows.size() + " participant(s) loaded — tick = Present, untick = Absent, then Save.");
-                    }
-                });
-            } catch (SQLException ex) {
+            // Verify this staff member is the organiser of this staff event
+            PreparedStatement verify = con.prepareStatement(
+                "SELECT COUNT(*) FROM staff_event WHERE event_id = ? AND organiser_id = ?");
+            verify.setInt(1, eventId); verify.setInt(2, userId);
+            ResultSet vRs = verify.executeQuery();
+            if (!vRs.next() || vRs.getInt(1) == 0) {
                 SwingUtilities.invokeLater(() -> {
                     infoLbl.setForeground(ERROR_COL);
-                    infoLbl.setText("DB Error: " + ex.getMessage());
+                    infoLbl.setText("Access denied: you are not the organiser of this event.");
                 });
+                return;
             }
-        }).start();
-    }
+
+            PreparedStatement ps = con.prepareStatement(
+                "SELECT u.user_id, u.name, " +
+                "NVL(s.reg_num,'—'), NVL(TO_CHAR(s.year),'—'), NVL(s.section,'—'), u.email, " +
+                "NVL((SELECT sa.attendance_status FROM student_attendance sa " +
+                "     WHERE sa.event_id=? AND sa.user_id=u.user_id), 'Not Marked') " +
+                "FROM staff_event_registration ser " +
+                "JOIN users u ON ser.user_id=u.user_id " +
+                "LEFT JOIN student s ON ser.user_id=s.user_id " +
+                "WHERE ser.event_id=? ORDER BY u.name");
+            ps.setInt(1, eventId); ps.setInt(2, eventId);
+            ResultSet rs = ps.executeQuery();
+
+            java.util.List<Object[]> rows = new java.util.ArrayList<>();
+            while (rs.next()) {
+                boolean present = "Present".equalsIgnoreCase(rs.getString(7));
+                rows.add(new Object[]{ rs.getInt(1), rs.getString(2), rs.getString(3),
+                    rs.getString(4), rs.getString(5), rs.getString(6), present });
+            }
+
+            SwingUtilities.invokeLater(() -> {
+                for (Object[] row : rows) model.addRow(row);
+                updateCounter(model, counterLbl);
+                if (rows.isEmpty()) {
+                    infoLbl.setForeground(new Color(255, 160, 60));
+                    infoLbl.setText("⚠ No registrations found for this event.");
+                } else {
+                    infoLbl.setForeground(SUCCESS_COL);
+                    infoLbl.setText("✅ " + rows.size() + " participant(s) loaded — tick = Present, untick = Absent, then Save.");
+                }
+            });
+        } catch (SQLException ex) {
+            SwingUtilities.invokeLater(() -> {
+                infoLbl.setForeground(ERROR_COL);
+                infoLbl.setText("DB Error: " + ex.getMessage());
+            });
+        }
+    }).start();
+}
 
     private void loadClubParticipantsForAttendance(int eventId, DefaultTableModel model,
                                                     JLabel infoLbl, JLabel counterLbl) {
@@ -1078,7 +1248,7 @@ public class StaffDashboard extends JFrame {
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  CERTIFICATES PAGE  (FIXED)
+    //  CERTIFICATES PAGE
     // ══════════════════════════════════════════════════════════════
     private void buildCertificatesPage(Dimension scr) {
         int slot = isIncharge ? 7 : 5;
@@ -1087,18 +1257,44 @@ public class StaffDashboard extends JFrame {
         pg.removeAll();
         pageTitle(pg, "Issue Certificates", W);
 
-        // ── Top controls row ──────────────────────────────────────
-        JLabel evLbl = makeLabel("Select Event:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
-        evLbl.setBounds(24, 66, 130, 24); pg.add(evLbl);
-        JComboBox<String> evCombo = styledCombo(new String[]{"-- Loading --"});
-        evCombo.setBounds(160, 62, 400, 38); pg.add(evCombo);
+        // ── Club filter (incharge only) ───────────────────────────
+        JComboBox<String> evCombo;
+        if (isIncharge) {
+            JLabel clubLbl = makeLabel("Select Club:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+            clubLbl.setBounds(24, 66, 110, 24); pg.add(clubLbl);
+            JComboBox<String> clubCombo = styledCombo(new String[]{"-- Loading --"});
+            clubCombo.setBounds(140, 62, 240, 38); pg.add(clubCombo);
+
+            JLabel evLbl = makeLabel("Select Event:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+            evLbl.setBounds(392, 66, 110, 24); pg.add(evLbl);
+            evCombo = styledCombo(new String[]{"-- Select Club First --"});
+            evCombo.setBounds(508, 62, 320, 38); pg.add(evCombo);
+
+            loadStaffInchargeClubsCombo(clubCombo);
+            JComboBox<String> finalEvCombo = evCombo;
+            clubCombo.addActionListener(e -> {
+                String csel = (String) clubCombo.getSelectedItem();
+                finalEvCombo.removeAllItems();
+                if (csel == null || csel.startsWith("--")) {
+                    finalEvCombo.addItem("-- Select Club First --"); return;
+                }
+                try {
+                    int clubId = Integer.parseInt(csel.split("\\|")[0].trim());
+                    loadEventsForClub(clubId, finalEvCombo);
+                } catch (Exception ex) { finalEvCombo.addItem("-- Error --"); }
+            });
+        } else {
+            JLabel evLbl = makeLabel("Select Event:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+            evLbl.setBounds(24, 66, 130, 24); pg.add(evLbl);
+            evCombo = styledCombo(new String[]{"-- Loading --"});
+            evCombo.setBounds(160, 62, 400, 38); pg.add(evCombo);
+        }
 
         JLabel typeLbl = makeLabel("Certificate Type:", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
-        typeLbl.setBounds(600, 66, 130, 24); pg.add(typeLbl);
+        typeLbl.setBounds(W - 320, 66, 130, 24); pg.add(typeLbl);
         JComboBox<String> typeCombo = styledCombo(new String[]{"Participant", "Winner", "Runner-up"});
-        typeCombo.setBounds(738, 62, 160, 38); pg.add(typeCombo);
+        typeCombo.setBounds(W - 184, 62, 160, 38); pg.add(typeCombo);
 
-        // ── Bulk-select buttons ───────────────────────────────────
         JButton selAllBtn = buildButton("☑ Select All", false);
         selAllBtn.setBounds(24, 108, 140, 34); pg.add(selAllBtn);
         JButton deselAllBtn = buildButton("☐ Deselect All", false);
@@ -1106,7 +1302,6 @@ public class StaffDashboard extends JFrame {
         JButton selEligibleBtn = buildButton("☑ Select Eligible", false);
         selEligibleBtn.setBounds(330, 108, 160, 34); pg.add(selEligibleBtn);
 
-        // ── Table ─────────────────────────────────────────────────
         String[] cols = {"User ID","Name","Reg No","Year","Section","Email","Attendance","Issue ✓"};
         DefaultTableModel model = new DefaultTableModel(cols, 0) {
             @Override public Class<?> getColumnClass(int c) {
@@ -1118,7 +1313,6 @@ public class StaffDashboard extends JFrame {
         styleTable(table);
         table.setRowHeight(36);
 
-        // Attendance column — colour-coded
         table.getColumn("Attendance").setCellRenderer(new DefaultTableCellRenderer() {
             @Override public Component getTableCellRendererComponent(
                     JTable t, Object v, boolean sel, boolean foc, int row, int col) {
@@ -1133,7 +1327,6 @@ public class StaffDashboard extends JFrame {
             }
         });
 
-        // Issue checkbox column renderer
         table.getColumn("Issue ✓").setCellRenderer(new TableCellRenderer() {
             @Override public Component getTableCellRendererComponent(
                     JTable t, Object v, boolean sel, boolean foc, int row, int col) {
@@ -1146,7 +1339,6 @@ public class StaffDashboard extends JFrame {
             }
         });
 
-        // Issue checkbox column editor
         JCheckBox certEditorCb = new JCheckBox();
         certEditorCb.setHorizontalAlignment(SwingConstants.CENTER);
         certEditorCb.setBackground(new Color(20, 10, 45));
@@ -1156,20 +1348,16 @@ public class StaffDashboard extends JFrame {
         table.getColumn("Issue ✓").setPreferredWidth(70);
         table.getColumn("User ID").setPreferredWidth(70);
 
-     // ── Layout: table takes most space, infoLbl + button placed directly on pg ──
         final int CONTROLS_BOTTOM = 150;
         final int BTN_H = 46;
         final int INFO_H = 40;
-
-        // Fix positions manually (safe layout)
-        int tableAreaH = H - 320;     // fixed safe height
+        int tableAreaH = H - 320;
         int INFO_Y = CONTROLS_BOTTOM + tableAreaH + 10;
         int BTN_Y = INFO_Y + INFO_H + 5;
-       
 
         pg.add(spAt(styledTableScroll(table), 24, CONTROLS_BOTTOM, W - 48, tableAreaH));
 
-        JLabel infoLbl = makeLabel("Select an event to view participants",
+        JLabel infoLbl = makeLabel("Select a club and event to view participants",
             new Font("SansSerif", Font.BOLD, 12), TEXT_MUTED);
         infoLbl.setBounds(24, INFO_Y, W - 48, INFO_H);
         infoLbl.setVerticalAlignment(SwingConstants.TOP);
@@ -1179,7 +1367,6 @@ public class StaffDashboard extends JFrame {
         issueBtn.setBounds(W - 360, BTN_Y, 336, BTN_H);
         pg.add(issueBtn);
 
-        // ── Bulk-select button actions ────────────────────────────
         selAllBtn.addActionListener(e -> {
             if (table.isEditing()) table.getCellEditor().stopCellEditing();
             for (int i = 0; i < model.getRowCount(); i++) model.setValueAt(true, i, 7);
@@ -1203,60 +1390,60 @@ public class StaffDashboard extends JFrame {
                 : "⚠ No Present students found. Mark attendance first.");
         });
 
-        // ── Load events combo with loading flag ───────────────────
-        boolean[] loading       = {true};
-        int[]     currentEvId   = {-1};
-        boolean[] isClubArr     = {false};
+        int[] currentEvId = {-1};
+        boolean[] isClubArr = {false};
 
-        loadEventsCombo(evCombo, () -> { loading[0] = false; });
+        if (!isIncharge) {
+            boolean[] loading = {true};
+            loadEventsCombo(evCombo, () -> { loading[0] = false; });
+            evCombo.addActionListener(e -> {
+                if (loading[0]) return;
+                String sel = (String) evCombo.getSelectedItem();
+                if (sel == null || sel.startsWith("--")) {
+                    model.setRowCount(0); currentEvId[0] = -1;
+                    infoLbl.setForeground(TEXT_MUTED);
+                    infoLbl.setText("Select an event to view participants"); return;
+                }
+                try {
+                    int evId = Integer.parseInt(sel.split("\\|")[0].trim());
+                    currentEvId[0] = evId; isClubArr[0] = sel.contains("[Club]");
+                    model.setRowCount(0);
+                    infoLbl.setForeground(TEXT_MUTED); infoLbl.setText("Loading participants…");
+                    loadCertificateParticipants(evId, isClubArr[0], model, infoLbl);
+                } catch (Exception ex) { infoLbl.setForeground(ERROR_COL); infoLbl.setText("Error: "+ex.getMessage()); }
+            });
+        } else {
+            evCombo.addActionListener(e -> {
+                String sel = (String) evCombo.getSelectedItem();
+                if (sel == null || sel.startsWith("--")) {
+                    model.setRowCount(0); currentEvId[0] = -1;
+                    infoLbl.setForeground(TEXT_MUTED);
+                    infoLbl.setText("Select a club and event to view participants"); return;
+                }
+                try {
+                    int evId = Integer.parseInt(sel.split("\\|")[0].trim());
+                    currentEvId[0] = evId; isClubArr[0] = true;
+                    model.setRowCount(0);
+                    infoLbl.setForeground(TEXT_MUTED); infoLbl.setText("Loading participants…");
+                    loadCertificateParticipants(evId, true, model, infoLbl);
+                } catch (Exception ex) { infoLbl.setForeground(ERROR_COL); infoLbl.setText("Error: "+ex.getMessage()); }
+            });
+        }
 
-        evCombo.addActionListener(e -> {
-            if (loading[0]) return;
-            String sel = (String) evCombo.getSelectedItem();
-            if (sel == null || sel.startsWith("--")) {
-                model.setRowCount(0);
-                currentEvId[0] = -1;
-                infoLbl.setForeground(TEXT_MUTED);
-                infoLbl.setText("Select an event to view participants");
-                return;
-            }
-            try {
-                int evId = Integer.parseInt(sel.split("\\|")[0].trim());
-                currentEvId[0]  = evId;
-                isClubArr[0]    = sel.contains("[Club]");
-                model.setRowCount(0);
-                infoLbl.setForeground(TEXT_MUTED);
-                infoLbl.setText("Loading participants…");
-                loadCertificateParticipants(evId, isClubArr[0], model, infoLbl);
-            } catch (Exception ex) {
-                infoLbl.setForeground(ERROR_COL);
-                infoLbl.setText("Error: " + ex.getMessage());
-            }
-        });
-
-        // ── Issue button ──────────────────────────────────────────
         issueBtn.addActionListener(e -> {
             if (currentEvId[0] < 0) {
-                infoLbl.setForeground(ERROR_COL);
-                infoLbl.setText("Select an event first.");
-                return;
+                infoLbl.setForeground(ERROR_COL); infoLbl.setText("Select an event first."); return;
             }
             if (table.isEditing()) table.getCellEditor().stopCellEditing();
-
             String certType = (String) typeCombo.getSelectedItem();
             java.util.List<Integer> selected = new java.util.ArrayList<>();
             for (int i = 0; i < model.getRowCount(); i++)
                 if (Boolean.TRUE.equals(model.getValueAt(i, 7)))
                     selected.add((Integer) model.getValueAt(i, 0));
-
             if (selected.isEmpty()) {
-                infoLbl.setForeground(ERROR_COL);
-                infoLbl.setText("Tick at least one student in the 'Issue ✓' column.");
-                return;
+                infoLbl.setForeground(ERROR_COL); infoLbl.setText("Tick at least one student in the 'Issue ✓' column."); return;
             }
-
-            infoLbl.setForeground(TEXT_MUTED);
-            infoLbl.setText("Issuing " + selected.size() + " certificate(s)…");
+            infoLbl.setForeground(TEXT_MUTED); infoLbl.setText("Issuing " + selected.size() + " certificate(s)…");
             issueBtn.setEnabled(false);
             issueCertificates(currentEvId[0], selected, certType, infoLbl, issueBtn);
         });
@@ -1340,6 +1527,393 @@ public class StaffDashboard extends JFrame {
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  PAGE 8 (INCHARGE ONLY) — LEAVE REQUESTS  ← NEW
+    // ══════════════════════════════════════════════════════════════
+    private void buildLeaveRequestsPage(Dimension scr) {
+        int slot = 8; // incharge only
+        JPanel pg = pages[slot];
+        int W = scr.width - SIDEBAR_W_PX, H = scr.height - TOP_H;
+        pg.removeAll();
+        pageTitle(pg, "Student Leave Requests", W);
+
+        // ── info banner ───────────────────────────────────────────
+        JPanel banner = glassCard();
+        banner.setBounds(24, 66, W - 48, 44); pg.add(banner);
+        JLabel bannerLbl = makeLabel(
+            "ℹ  Approve to remove the student from the club. Reject to keep them. " +
+            "Students must always remain in at least 1 club (enforced by the stored procedure).",
+            new Font("SansSerif", Font.PLAIN, 12), WARN_COL);
+        bannerLbl.setBounds(14, 12, W - 76, 20); banner.add(bannerLbl);
+
+        // ── Pending vs History tabs via radio ─────────────────────
+        JToggleButton showPending  = new JToggleButton("⏳ Pending");
+        JToggleButton showAll      = new JToggleButton("📋 All History");
+        styleToggleBtn(showPending, true);
+        styleToggleBtn(showAll, false);
+        showPending.setBounds(24, 118, 140, 32); pg.add(showPending);
+        showAll    .setBounds(172, 118, 160, 32); pg.add(showAll);
+
+        JButton refreshBtn = buildButton("↻ Refresh", false);
+        refreshBtn.setBounds(W - 130, 18, 110, 32); pg.add(refreshBtn);
+
+        // ── Status label ──────────────────────────────────────────
+        JLabel statusLbl = makeLabel("", new Font("SansSerif", Font.BOLD, 13), SUCCESS_COL);
+        statusLbl.setBounds(24, H - 36, W - 48, 24); pg.add(statusLbl);
+
+        // ── Table ─────────────────────────────────────────────────
+        String[] cols = {"Req ID", "Student Name", "Reg No", "Club Name",
+                         "Requested On", "Status", "Approve", "Reject"};
+        DefaultTableModel model = new DefaultTableModel(cols, 0) {
+            @Override public boolean isCellEditable(int r, int c) { return c == 6 || c == 7; }
+        };
+        JTable table = new JTable(model);
+        styleTable(table);
+        table.setRowHeight(42);
+
+        // ── Status column renderer (colour-coded) ─────────────────
+        table.getColumn("Status").setCellRenderer(new DefaultTableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(
+                    JTable t, Object v, boolean sel, boolean foc, int row, int col) {
+                JLabel lbl = (JLabel) super.getTableCellRendererComponent(t, v, sel, foc, row, col);
+                String s = v == null ? "—" : v.toString();
+                switch (s) {
+                    case "Pending"  -> { lbl.setForeground(WARN_COL);    lbl.setText("⏳ Pending"); }
+                    case "Approved" -> { lbl.setForeground(SUCCESS_COL); lbl.setText("✓ Approved"); }
+                    case "Rejected" -> { lbl.setForeground(ERROR_COL);   lbl.setText("✗ Rejected"); }
+                    default         -> { lbl.setForeground(TEXT_MUTED);  }
+                }
+                lbl.setFont(new Font("SansSerif", Font.BOLD, 12));
+                lbl.setBackground(sel ? new Color(100, 50, 200, 120)
+                    : row % 2 == 0 ? new Color(12, 6, 30) : new Color(20, 10, 45));
+                lbl.setOpaque(true);
+                lbl.setBorder(new EmptyBorder(0, 12, 0, 12));
+                return lbl;
+            }
+        });
+
+        // ── Approve button column ─────────────────────────────────
+        table.getColumn("Approve").setCellRenderer(new TableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(
+                    JTable t, Object v, boolean sel, boolean foc, int row, int col) {
+                String status = (String) t.getValueAt(row, 5);
+                if ("Pending".equals(status)) {
+                    JButton btn = buildButton("✓ Approve", true);
+                    btn.setFont(new Font("Georgia", Font.BOLD, 11));
+                    return btn;
+                }
+                JLabel done = makeLabel("—", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+                done.setHorizontalAlignment(SwingConstants.CENTER);
+                done.setOpaque(true);
+                done.setBackground(row % 2 == 0 ? new Color(12, 6, 30) : new Color(20, 10, 45));
+                return done;
+            }
+        });
+        table.getColumn("Approve").setCellEditor(new DefaultCellEditor(new JCheckBox()) {
+            @Override public Component getTableCellEditorComponent(
+                    JTable t, Object v, boolean sel, int row, int col) {
+                String status = (String) t.getValueAt(row, 5);
+                if (!"Pending".equals(status)) {
+                    fireEditingStopped();
+                    return new JLabel("—");
+                }
+                JButton btn = buildButton("✓ Approve", true);
+                btn.setFont(new Font("Georgia", Font.BOLD, 11));
+                btn.addActionListener(e -> {
+                    fireEditingStopped();
+                    int reqId  = (Integer) t.getValueAt(row, 0);
+                    int stuId  = getUserIdForRequest(reqId);
+                    int clubId = getClubIdForRequest(reqId);
+                    String stuName  = (String) t.getValueAt(row, 1);
+                    String clubName = (String) t.getValueAt(row, 3);
+                    approveLeaveRequest(reqId, stuId, clubId, stuName, clubName,
+                        model, statusLbl);
+                });
+                return btn;
+            }
+            @Override public Object getCellEditorValue() { return ""; }
+        });
+
+        // ── Reject button column ──────────────────────────────────
+        table.getColumn("Reject").setCellRenderer(new TableCellRenderer() {
+            @Override public Component getTableCellRendererComponent(
+                    JTable t, Object v, boolean sel, boolean foc, int row, int col) {
+                String status = (String) t.getValueAt(row, 5);
+                if ("Pending".equals(status)) {
+                    JButton btn = buildButton("✗ Reject", false);
+                    btn.setFont(new Font("Georgia", Font.BOLD, 11));
+                    return btn;
+                }
+                JLabel done = makeLabel("—", new Font("SansSerif", Font.PLAIN, 12), TEXT_MUTED);
+                done.setHorizontalAlignment(SwingConstants.CENTER);
+                done.setOpaque(true);
+                done.setBackground(row % 2 == 0 ? new Color(12, 6, 30) : new Color(20, 10, 45));
+                return done;
+            }
+        });
+        table.getColumn("Reject").setCellEditor(new DefaultCellEditor(new JCheckBox()) {
+            @Override public Component getTableCellEditorComponent(
+                    JTable t, Object v, boolean sel, int row, int col) {
+                String status = (String) t.getValueAt(row, 5);
+                if (!"Pending".equals(status)) {
+                    fireEditingStopped();
+                    return new JLabel("—");
+                }
+                JButton btn = buildButton("✗ Reject", false);
+                btn.setFont(new Font("Georgia", Font.BOLD, 11));
+                btn.addActionListener(e -> {
+                    fireEditingStopped();
+                    int reqId  = (Integer) t.getValueAt(row, 0);
+                    String stuName  = (String) t.getValueAt(row, 1);
+                    String clubName = (String) t.getValueAt(row, 3);
+                    rejectLeaveRequest(reqId, stuName, clubName, model, statusLbl);
+                });
+                return btn;
+            }
+            @Override public Object getCellEditorValue() { return ""; }
+        });
+
+        // ── Column widths ─────────────────────────────────────────
+        table.getColumn("Req ID")        .setPreferredWidth(60);
+        table.getColumn("Student Name")  .setPreferredWidth(200);
+        table.getColumn("Reg No")        .setPreferredWidth(100);
+        table.getColumn("Club Name")     .setPreferredWidth(180);
+        table.getColumn("Requested On")  .setPreferredWidth(110);
+        table.getColumn("Status")        .setPreferredWidth(110);
+        table.getColumn("Approve")       .setPreferredWidth(110);
+        table.getColumn("Reject")        .setPreferredWidth(100);
+
+        pg.add(spAt(styledTableScroll(table), 24, 158, W - 48, H - 206));
+
+        // ── Toggle logic ──────────────────────────────────────────
+        boolean[] showingPending = {true};
+
+        Runnable loader = () -> {
+            model.setRowCount(0);
+            statusLbl.setText("");
+            loadLeaveRequests(model, showingPending[0]);
+        };
+
+        showPending.addActionListener(e -> {
+            if (!showingPending[0]) {
+                showingPending[0] = true;
+                styleToggleBtn(showPending, true);
+                styleToggleBtn(showAll, false);
+                loader.run();
+            }
+        });
+        showAll.addActionListener(e -> {
+            if (showingPending[0]) {
+                showingPending[0] = false;
+                styleToggleBtn(showPending, false);
+                styleToggleBtn(showAll, true);
+                loader.run();
+            }
+        });
+
+        refreshBtn.addActionListener(e -> loader.run());
+        loader.run();
+    }
+
+    // ── Helper: style a toggle button ────────────────────────────
+    private void styleToggleBtn(JToggleButton btn, boolean active) {
+        btn.setBackground(active ? new Color(130, 60, 255, 180) : new Color(255, 255, 255, 18));
+        btn.setForeground(active ? Color.WHITE : TEXT_MUTED);
+        btn.setFont(new Font("Georgia", Font.BOLD, 12));
+        btn.setBorderPainted(false);
+        btn.setFocusPainted(false);
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+    }
+
+    // ── Load leave requests for clubs where I am staff_incharge ──
+    private void loadLeaveRequests(DefaultTableModel model, boolean pendingOnly) {
+        new Thread(() -> {
+            try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+                String sql =
+                    "SELECT clr.request_id, u.name, NVL(s.reg_num,'—'), c.club_name, " +
+                    "       clr.request_date, clr.status " +                          // ← fixed
+                    "FROM club_leave_request clr " +
+                    "JOIN users u ON clr.user_id = u.user_id " +
+                    "LEFT JOIN student s ON clr.user_id = s.user_id " +
+                    "JOIN club c ON clr.club_id = c.club_id " +
+                    "JOIN members_in mi ON mi.club_id = clr.club_id " +
+                    "WHERE mi.user_id = ? AND mi.role_type = 'staff_incharge' " +
+                    (pendingOnly ? "AND clr.status = 'Pending' " : "") +
+                    "ORDER BY clr.request_date DESC";                                  // ← fixed
+                PreparedStatement ps = con.prepareStatement(sql);
+                ps.setInt(1, userId);
+                ResultSet rs = ps.executeQuery();
+                java.util.List<Object[]> rows = new java.util.ArrayList<>();
+                while (rs.next()) {
+                    rows.add(new Object[]{
+                        rs.getInt(1),    // Req ID
+                        rs.getString(2), // Student Name
+                        rs.getString(3), // Reg No
+                        rs.getString(4), // Club Name
+                        rs.getDate(5),   // Requested On
+                        rs.getString(6), // Status
+                        "",              // Approve placeholder
+                        ""               // Reject placeholder
+                    });
+                }
+                SwingUtilities.invokeLater(() -> {
+                    for (Object[] row : rows) model.addRow(row);
+                    if (rows.isEmpty()) {
+                        // Show a ghost row so the table isn't blank
+                        model.addRow(new Object[]{"—",
+                            pendingOnly ? "No pending leave requests" : "No leave requests found",
+                            "—", "—", "—", "—", "", ""});
+                    }
+                    updateLeaveRequestBadge();
+                });
+            } catch (SQLException ex) {
+                SwingUtilities.invokeLater(() ->
+                    model.addRow(new Object[]{"—", "Error: " + ex.getMessage(),
+                        "—", "—", "—", "—", "", ""}));
+            }
+        }).start();
+    }
+
+    // ── Helper: get student user_id from request_id ───────────────
+    private int getUserIdForRequest(int reqId) {
+        try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+            PreparedStatement ps = con.prepareStatement(
+                "SELECT user_id FROM club_leave_request WHERE request_id = ?");
+            ps.setInt(1, reqId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException ignored) {}
+        return -1;
+    }
+
+    // ── Helper: get club_id from request_id ───────────────────────
+    private int getClubIdForRequest(int reqId) {
+        try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+            PreparedStatement ps = con.prepareStatement(
+                "SELECT club_id FROM club_leave_request WHERE request_id = ?");
+            ps.setInt(1, reqId);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) return rs.getInt(1);
+        } catch (SQLException ignored) {}
+        return -1;
+    }
+
+    // ── Approve: update status + remove from members_in ───────────
+    private void approveLeaveRequest(int reqId, int studentUserId, int clubId,
+                                      String stuName, String clubName,
+                                      DefaultTableModel model, JLabel statusLbl) {
+        int confirm = JOptionPane.showConfirmDialog(this,
+            "<html>Approve leave for <b>" + stuName + "</b> from <b>" + clubName + "</b>?<br><br>" +
+            "This will <b>permanently remove</b> them from the club.</html>",
+            "Confirm Approval", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        new Thread(() -> {
+            Connection con = null;
+            try {
+                con = DriverManager.getConnection(dbUrl, dbUser, dbPass);
+                con.setAutoCommit(false);
+
+                // 1. Verify student still has at least 2 clubs (so they'll still have 1 after removal)
+                PreparedStatement clubCountPs = con.prepareStatement(
+                    "SELECT COUNT(*) FROM members_in WHERE user_id = ?");
+                clubCountPs.setInt(1, studentUserId);
+                ResultSet ccRs = clubCountPs.executeQuery();
+                int clubCount = ccRs.next() ? ccRs.getInt(1) : 0;
+
+                if (clubCount <= 1) {
+                    con.rollback();
+                    SwingUtilities.invokeLater(() -> {
+                        statusLbl.setForeground(ERROR_COL);
+                        statusLbl.setText("Cannot approve — " + stuName +
+                            " must remain in at least 1 club.");
+                        JOptionPane.showMessageDialog(this,
+                            "<html><b>" + stuName + "</b> is only a member of 1 club.<br>" +
+                            "Cannot remove them — students must be in at least 1 club.</html>",
+                            "Cannot Approve", JOptionPane.WARNING_MESSAGE);
+                    });
+                    return;
+                }
+
+                // 2. Update leave request status to Approved
+                PreparedStatement updatePs = con.prepareStatement(
+                	    "UPDATE club_leave_request SET status = 'Approved', " +
+                	    "handled_by = ?, handled_date = SYSDATE " +           // ← fixed
+                	    "WHERE request_id = ?");
+                updatePs.setInt(1, userId);
+                updatePs.setInt(2, reqId);
+                updatePs.executeUpdate();
+
+                // 3. Remove the student from members_in
+                PreparedStatement deletePs = con.prepareStatement(
+                    "DELETE FROM members_in WHERE user_id = ? AND club_id = ?");
+                deletePs.setInt(1, studentUserId);
+                deletePs.setInt(2, clubId);
+                deletePs.executeUpdate();
+
+                con.commit();
+
+                SwingUtilities.invokeLater(() -> {
+                    statusLbl.setForeground(SUCCESS_COL);
+                    statusLbl.setText("✅ Approved — " + stuName +
+                        " has been removed from " + clubName + ".");
+                    // Refresh the table
+                    model.setRowCount(0);
+                    loadLeaveRequests(model, true);
+                    updateLeaveRequestBadge();
+                });
+
+            } catch (SQLException ex) {
+                if (con != null) try { con.rollback(); } catch (SQLException ignored) {}
+                SwingUtilities.invokeLater(() -> {
+                    statusLbl.setForeground(ERROR_COL);
+                    String msg = ex.getMessage() == null ? "DB error" : ex.getMessage();
+                    statusLbl.setText("Error: " + msg.substring(0, Math.min(80, msg.length())));
+                });
+            } finally {
+                if (con != null) try { con.setAutoCommit(true); con.close(); } catch (SQLException ignored) {}
+            }
+        }).start();
+    }
+
+    // ── Reject: update status only ────────────────────────────────
+    private void rejectLeaveRequest(int reqId, String stuName, String clubName,
+                                     DefaultTableModel model, JLabel statusLbl) {
+        int confirm = JOptionPane.showConfirmDialog(this,
+            "<html>Reject the leave request from <b>" + stuName +
+            "</b> for club <b>" + clubName + "</b>?<br><br>" +
+            "They will remain a member of the club.</html>",
+            "Confirm Rejection", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (confirm != JOptionPane.YES_OPTION) return;
+
+        new Thread(() -> {
+            try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+            	PreparedStatement ps = con.prepareStatement(
+            		    "UPDATE club_leave_request SET status = 'Rejected', " +
+            		    "handled_by = ?, handled_date = SYSDATE " +           // ← fixed
+            		    "WHERE request_id = ?");
+                ps.setInt(1, userId);
+                ps.setInt(2, reqId);
+                ps.executeUpdate();
+
+                SwingUtilities.invokeLater(() -> {
+                    statusLbl.setForeground(WARN_COL);
+                    statusLbl.setText("✗ Rejected — " + stuName +
+                        " will remain in " + clubName + ".");
+                    model.setRowCount(0);
+                    loadLeaveRequests(model, true);
+                    updateLeaveRequestBadge();
+                });
+            } catch (SQLException ex) {
+                SwingUtilities.invokeLater(() -> {
+                    statusLbl.setForeground(ERROR_COL);
+                    String msg = ex.getMessage() == null ? "DB error" : ex.getMessage();
+                    statusLbl.setText("Error: " + msg.substring(0, Math.min(80, msg.length())));
+                });
+            }
+        }).start();
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  COMBO LOADER
     // ══════════════════════════════════════════════════════════════
     private void loadEventsCombo(JComboBox<String> combo, Runnable onDone) {
@@ -1347,25 +1921,46 @@ public class StaffDashboard extends JFrame {
             try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
                 DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
                 m.addElement("-- Select Event --");
-                PreparedStatement ps1 = con.prepareStatement(
-                	    "SELECT se.event_id, se.event_title, se.event_type " +
-                	    "FROM staff_event se " +
-                	    "WHERE se.organiser_id = ? " +
-                	    "OR se.event_id IN (SELECT event_id FROM staff_event_registration WHERE user_id = ?) " +
-                	    "ORDER BY se.start_date DESC");
-                	ps1.setInt(1, userId);
-                	ps1.setInt(2, userId);
-                	ResultSet rs1 = ps1.executeQuery();
-                while (rs1.next())
-                    m.addElement(rs1.getInt(1)+" | "+rs1.getString(2)+" ("+rs1.getString(3)+") [Staff]");
-                PreparedStatement ps2 = con.prepareStatement(
-                    "SELECT e.event_id, e.event_title, c.club_name " +
-                    "FROM event e JOIN club c ON e.club_id=c.club_id " +
-                    "WHERE c.club_id IN (SELECT club_id FROM members_in WHERE user_id=? AND role_type='staff_incharge') " +
-                    "ORDER BY e.start_date DESC");
-                ps2.setInt(1, userId); ResultSet rs2 = ps2.executeQuery();
-                while (rs2.next())
-                    m.addElement(rs2.getInt(1)+" | "+rs2.getString(2)+" ("+rs2.getString(3)+") [Club]");
+
+                if (isIncharge) {
+                    // Staff events organised by this incharge only
+                    PreparedStatement ps1 = con.prepareStatement(
+                        "SELECT se.event_id, se.event_title, se.event_type " +
+                        "FROM staff_event se " +
+                        "WHERE se.organiser_id = ? " +
+                        "ORDER BY se.start_date DESC");
+                    ps1.setInt(1, userId);
+                    ResultSet rs1 = ps1.executeQuery();
+                    while (rs1.next())
+                        m.addElement(rs1.getInt(1)+" | "+rs1.getString(2)+" ("+rs1.getString(3)+") [Staff]");
+
+                    // Club events where this staff is incharge of that club
+                    PreparedStatement ps2 = con.prepareStatement(
+                        "SELECT e.event_id, e.event_title, c.club_name " +
+                        "FROM event e JOIN club c ON e.club_id = c.club_id " +
+                        "WHERE c.club_id IN (" +
+                        "  SELECT club_id FROM members_in " +
+                        "  WHERE user_id = ? AND role_type = 'staff_incharge') " +
+                        "ORDER BY e.start_date DESC");
+                    ps2.setInt(1, userId);
+                    ResultSet rs2 = ps2.executeQuery();
+                    while (rs2.next())
+                        m.addElement(rs2.getInt(1)+" | "+rs2.getString(2)+" ("+rs2.getString(3)+") [Club]");
+
+                } else {
+                    // Non-incharge: only staff events they registered for
+                    PreparedStatement ps1 = con.prepareStatement(
+                        "SELECT se.event_id, se.event_title, se.event_type " +
+                        "FROM staff_event se " +
+                        "WHERE se.event_id IN (" +
+                        "  SELECT event_id FROM staff_event_registration WHERE user_id = ?) " +
+                        "ORDER BY se.start_date DESC");
+                    ps1.setInt(1, userId);
+                    ResultSet rs1 = ps1.executeQuery();
+                    while (rs1.next())
+                        m.addElement(rs1.getInt(1)+" | "+rs1.getString(2)+" ("+rs1.getString(3)+") [Staff]");
+                }
+
                 SwingUtilities.invokeLater(() -> {
                     combo.setModel(m);
                     if (onDone != null) onDone.run();
@@ -1375,6 +1970,104 @@ public class StaffDashboard extends JFrame {
                     combo.removeAllItems();
                     combo.addItem("-- Error loading events --");
                     if (onDone != null) onDone.run();
+                });
+            }
+        }).start();
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  CLUB-ONLY EVENTS COMBO
+    //  Used by Participants, Mark Attendance, and Certificates pages.
+    //  For an incharge: shows only events belonging to clubs where
+    //  THIS staff member is staff_incharge (no staff events shown).
+    //  For a non-incharge: falls back to the same staff-event list.
+    // ══════════════════════════════════════════════════════════════
+    private void loadClubOnlyEventsCombo(JComboBox<String> combo, Runnable onDone) {
+        new Thread(() -> {
+            try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+                DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
+                m.addElement("-- Select Event --");
+
+                if (isIncharge) {
+                    // Only club events for clubs where this staff is staff_incharge
+                    PreparedStatement ps = con.prepareStatement(
+                        "SELECT e.event_id, e.event_title, c.club_name " +
+                        "FROM event e JOIN club c ON e.club_id = c.club_id " +
+                        "WHERE c.club_id IN (" +
+                        "  SELECT club_id FROM members_in " +
+                        "  WHERE user_id = ? AND role_type = 'staff_incharge') " +
+                        "ORDER BY e.start_date DESC");
+                    ps.setInt(1, userId);
+                    ResultSet rs = ps.executeQuery();
+                    while (rs.next())
+                        m.addElement(rs.getInt(1) + " | " + rs.getString(2)
+                            + " (" + rs.getString(3) + ") [Club]");
+                } else {
+                    // Non-incharge: staff events they registered for
+                    PreparedStatement ps = con.prepareStatement(
+                        "SELECT se.event_id, se.event_title, se.event_type " +
+                        "FROM staff_event se " +
+                        "WHERE se.event_id IN (" +
+                        "  SELECT event_id FROM staff_event_registration WHERE user_id = ?) " +
+                        "ORDER BY se.start_date DESC");
+                    ps.setInt(1, userId);
+                    ResultSet rs = ps.executeQuery();
+                    while (rs.next())
+                        m.addElement(rs.getInt(1) + " | " + rs.getString(2)
+                            + " (" + rs.getString(3) + ") [Staff]");
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    combo.setModel(m);
+                    if (onDone != null) onDone.run();
+                });
+            } catch (SQLException ex) {
+                SwingUtilities.invokeLater(() -> {
+                    combo.removeAllItems();
+                    combo.addItem("-- Error loading events --");
+                    if (onDone != null) onDone.run();
+                });
+            }
+        }).start();
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  EVENTS FOR A SPECIFIC CLUB (used by cascading dropdowns)
+    // ══════════════════════════════════════════════════════════════
+    private void loadEventsForClub(int clubId, JComboBox<String> combo) {
+        combo.removeAllItems();
+        combo.addItem("-- Loading events --");
+        new Thread(() -> {
+            try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+                // Verify caller is actually staff_incharge of this club
+                PreparedStatement verify = con.prepareStatement(
+                    "SELECT COUNT(*) FROM members_in " +
+                    "WHERE user_id = ? AND club_id = ? AND role_type = 'staff_incharge'");
+                verify.setInt(1, userId); verify.setInt(2, clubId);
+                ResultSet vr = verify.executeQuery();
+                if (!vr.next() || vr.getInt(1) == 0) {
+                    SwingUtilities.invokeLater(() -> {
+                        combo.removeAllItems();
+                        combo.addItem("-- Access denied --");
+                    });
+                    return;
+                }
+                PreparedStatement ps = con.prepareStatement(
+                    "SELECT e.event_id, e.event_title " +
+                    "FROM event e " +
+                    "WHERE e.club_id = ? " +
+                    "ORDER BY e.start_date DESC");
+                ps.setInt(1, clubId);
+                ResultSet rs = ps.executeQuery();
+                DefaultComboBoxModel<String> m = new DefaultComboBoxModel<>();
+                m.addElement("-- Select Event --");
+                while (rs.next())
+                    m.addElement(rs.getInt(1) + " | " + rs.getString(2));
+                SwingUtilities.invokeLater(() -> combo.setModel(m));
+            } catch (SQLException ex) {
+                SwingUtilities.invokeLater(() -> {
+                    combo.removeAllItems();
+                    combo.addItem("-- Error loading events --");
                 });
             }
         }).start();
@@ -1407,7 +2100,6 @@ public class StaffDashboard extends JFrame {
     private void loadInternalParticipants(int eventId, DefaultTableModel model) {
         new Thread(() -> {
             try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
-            	
                 PreparedStatement ps = con.prepareStatement(
                     "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(s.year,0),"+
                     "NVL(s.section,'—'),u.email,ser.reg_date,'Registered' "+
@@ -1445,103 +2137,127 @@ public class StaffDashboard extends JFrame {
     }
 
     private void loadCertificateParticipants(int eventId, boolean isClub,
-                                              DefaultTableModel model, JLabel infoLbl) {
-        new Thread(() -> {
-            try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
+                                          DefaultTableModel model, JLabel infoLbl) {
+    new Thread(() -> {
+        try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
 
-                // Check if attendance has been marked for this event
-                PreparedStatement attCheck = con.prepareStatement(
-                    "SELECT COUNT(*) FROM student_attendance WHERE event_id=?");
-                attCheck.setInt(1, eventId);
-                ResultSet attRs = attCheck.executeQuery();
-                boolean attendanceMarked = attRs.next() && attRs.getInt(1) > 0;
-
-                java.util.List<Object[]> rows = new java.util.ArrayList<>();
-
-                if (!attendanceMarked) {
-                    // No attendance marked — show all registrants, unchecked
-                    String sql = isClub
-                        ? "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
-                          "u.email,'Not Marked Yet' " +
-                          "FROM registers r JOIN users u ON r.user_id=u.user_id " +
-                          "LEFT JOIN student s ON u.user_id=s.user_id " +
-                          "WHERE r.event_id=? ORDER BY u.name"
-                        : "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
-                          "u.email,'Not Marked Yet' " +
-                          "FROM staff_event_registration ser JOIN users u ON ser.user_id=u.user_id " +
-                          "LEFT JOIN student s ON u.user_id=s.user_id " +
-                          "WHERE ser.event_id=? ORDER BY u.name";
-                    PreparedStatement ps = con.prepareStatement(sql);
-                    ps.setInt(1, eventId);
-                    ResultSet rs = ps.executeQuery();
-                    while (rs.next())
-                        rows.add(new Object[]{rs.getInt(1),rs.getString(2),rs.getString(3),
-                            rs.getString(4),rs.getString(5),rs.getString(6),rs.getString(7),false});
-
+            // ── Access check ──────────────────────────────────────
+            if (isClub) {
+                PreparedStatement verify = con.prepareStatement(
+                    "SELECT COUNT(*) FROM event e " +
+                    "JOIN members_in mi ON e.club_id = mi.club_id " +
+                    "WHERE e.event_id = ? AND mi.user_id = ? AND mi.role_type = 'staff_incharge'");
+                verify.setInt(1, eventId); verify.setInt(2, userId);
+                ResultSet vRs = verify.executeQuery();
+                if (!vRs.next() || vRs.getInt(1) == 0) {
                     SwingUtilities.invokeLater(() -> {
-                        for (Object[] r : rows) model.addRow(r);
-                        infoLbl.setForeground(new Color(255, 160, 60));
-                        infoLbl.setText("⚠ Attendance not marked yet — showing all " + rows.size() +
-                            " registrant(s). You can still issue certificates.");
+                        infoLbl.setForeground(ERROR_COL);
+                        infoLbl.setText("Access denied: you are not the club incharge for this event.");
                     });
-
-                } else {
-                    // Attendance marked — show only Present students, pre-unchecked
-                    String sql = isClub
-                        ? "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
-                          "u.email," +
-                          "NVL((SELECT sa.attendance_status FROM student_attendance sa " +
-                          "     WHERE sa.event_id=? AND sa.user_id=u.user_id),'Absent') " +
-                          "FROM registers r JOIN users u ON r.user_id=u.user_id " +
-                          "LEFT JOIN student s ON u.user_id=s.user_id " +
-                          "WHERE r.event_id=? " +
-                          "AND u.user_id IN (SELECT user_id FROM student_attendance " +
-                          "                  WHERE event_id=? AND attendance_status='Present') " +
-                          "ORDER BY u.name"
-                        : "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
-                          "u.email," +
-                          "NVL((SELECT sa.attendance_status FROM student_attendance sa " +
-                          "     WHERE sa.event_id=? AND sa.user_id=u.user_id),'Absent') " +
-                          "FROM staff_event_registration ser JOIN users u ON ser.user_id=u.user_id " +
-                          "LEFT JOIN student s ON u.user_id=s.user_id " +
-                          "WHERE ser.event_id=? " +
-                          "AND u.user_id IN (SELECT user_id FROM student_attendance " +
-                          "                  WHERE event_id=? AND attendance_status='Present') " +
-                          "ORDER BY u.name";
-                    PreparedStatement ps = con.prepareStatement(sql);
-                    ps.setInt(1, eventId); ps.setInt(2, eventId); ps.setInt(3, eventId);
-                    ResultSet rs = ps.executeQuery();
-                    while (rs.next())
-                        rows.add(new Object[]{rs.getInt(1),rs.getString(2),rs.getString(3),
-                            rs.getString(4),rs.getString(5),rs.getString(6),rs.getString(7),false});
-
-                    SwingUtilities.invokeLater(() -> {
-                        for (Object[] r : rows) model.addRow(r);
-                        if (rows.isEmpty()) {
-                            infoLbl.setForeground(new Color(255, 160, 60));
-                            infoLbl.setText("⚠ No Present students found. Check attendance has been saved.");
-                        } else {
-                            infoLbl.setForeground(SUCCESS_COL);
-                            infoLbl.setText("✅ " + rows.size() + " Present student(s) — tick and click Issue, or use '☑ Select Eligible'.");
-                        }
-                    });
+                    return;
                 }
+            } else {
+                PreparedStatement verify = con.prepareStatement(
+                    "SELECT COUNT(*) FROM staff_event WHERE event_id = ? AND organiser_id = ?");
+                verify.setInt(1, eventId); verify.setInt(2, userId);
+                ResultSet vRs = verify.executeQuery();
+                if (!vRs.next() || vRs.getInt(1) == 0) {
+                    SwingUtilities.invokeLater(() -> {
+                        infoLbl.setForeground(ERROR_COL);
+                        infoLbl.setText("Access denied: you are not the organiser of this event.");
+                    });
+                    return;
+                }
+            }
 
-            } catch (SQLException ex) {
+            // ── Rest of the method unchanged from here ────────────
+            PreparedStatement attCheck = con.prepareStatement(
+                "SELECT COUNT(*) FROM student_attendance WHERE event_id=?");
+            attCheck.setInt(1, eventId);
+            ResultSet attRs = attCheck.executeQuery();
+            boolean attendanceMarked = attRs.next() && attRs.getInt(1) > 0;
+
+            java.util.List<Object[]> rows = new java.util.ArrayList<>();
+
+            if (!attendanceMarked) {
+                String sql = isClub
+                    ? "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
+                      "u.email,'Not Marked Yet' " +
+                      "FROM registers r JOIN users u ON r.user_id=u.user_id " +
+                      "LEFT JOIN student s ON u.user_id=s.user_id " +
+                      "WHERE r.event_id=? ORDER BY u.name"
+                    : "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
+                      "u.email,'Not Marked Yet' " +
+                      "FROM staff_event_registration ser JOIN users u ON ser.user_id=u.user_id " +
+                      "LEFT JOIN student s ON u.user_id=s.user_id " +
+                      "WHERE ser.event_id=? ORDER BY u.name";
+                PreparedStatement ps = con.prepareStatement(sql);
+                ps.setInt(1, eventId);
+                ResultSet rs = ps.executeQuery();
+                while (rs.next())
+                    rows.add(new Object[]{rs.getInt(1),rs.getString(2),rs.getString(3),
+                        rs.getString(4),rs.getString(5),rs.getString(6),rs.getString(7),false});
+
                 SwingUtilities.invokeLater(() -> {
-                    infoLbl.setForeground(ERROR_COL);
-                    infoLbl.setText("Error: " + ex.getMessage());
+                    for (Object[] r : rows) model.addRow(r);
+                    infoLbl.setForeground(new Color(255, 160, 60));
+                    infoLbl.setText("⚠ Attendance not marked yet — showing all " + rows.size() +
+                        " registrant(s). You can still issue certificates.");
+                });
+
+            } else {
+                String sql = isClub
+                    ? "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
+                      "u.email," +
+                      "NVL((SELECT sa.attendance_status FROM student_attendance sa " +
+                      "     WHERE sa.event_id=? AND sa.user_id=u.user_id),'Absent') " +
+                      "FROM registers r JOIN users u ON r.user_id=u.user_id " +
+                      "LEFT JOIN student s ON u.user_id=s.user_id " +
+                      "WHERE r.event_id=? " +
+                      "AND u.user_id IN (SELECT user_id FROM student_attendance " +
+                      "                  WHERE event_id=? AND attendance_status='Present') " +
+                      "ORDER BY u.name"
+                    : "SELECT u.user_id,u.name,NVL(s.reg_num,'—'),NVL(TO_CHAR(s.year),'—'),NVL(s.section,'—')," +
+                      "u.email," +
+                      "NVL((SELECT sa.attendance_status FROM student_attendance sa " +
+                      "     WHERE sa.event_id=? AND sa.user_id=u.user_id),'Absent') " +
+                      "FROM staff_event_registration ser JOIN users u ON ser.user_id=u.user_id " +
+                      "LEFT JOIN student s ON u.user_id=s.user_id " +
+                      "WHERE ser.event_id=? " +
+                      "AND u.user_id IN (SELECT user_id FROM student_attendance " +
+                      "                  WHERE event_id=? AND attendance_status='Present') " +
+                      "ORDER BY u.name";
+                PreparedStatement ps = con.prepareStatement(sql);
+                ps.setInt(1, eventId); ps.setInt(2, eventId); ps.setInt(3, eventId);
+                ResultSet rs = ps.executeQuery();
+                while (rs.next())
+                    rows.add(new Object[]{rs.getInt(1),rs.getString(2),rs.getString(3),
+                        rs.getString(4),rs.getString(5),rs.getString(6),rs.getString(7),false});
+
+                SwingUtilities.invokeLater(() -> {
+                    for (Object[] r : rows) model.addRow(r);
+                    if (rows.isEmpty()) {
+                        infoLbl.setForeground(new Color(255, 160, 60));
+                        infoLbl.setText("⚠ No Present students found. Check attendance has been saved.");
+                    } else {
+                        infoLbl.setForeground(SUCCESS_COL);
+                        infoLbl.setText("✅ " + rows.size() + " Present student(s) — tick and click Issue, or use '☑ Select Eligible'.");
+                    }
                 });
             }
-        }).start();
-    }
 
-    // ── Issue certificates — with issueBtn re-enable ──────────────
+        } catch (SQLException ex) {
+            SwingUtilities.invokeLater(() -> {
+                infoLbl.setForeground(ERROR_COL);
+                infoLbl.setText("Error: " + ex.getMessage());
+            });
+        }
+    }).start();
+}
     private void issueCertificates(int eventId, java.util.List<Integer> userIds,
                                    String certType, JLabel infoLbl, JButton issueBtn) {
         new Thread(() -> {
             try (Connection con = DriverManager.getConnection(dbUrl, dbUser, dbPass)) {
-                // Resolve event name (try staff_event first, then club event)
                 String eventName = "Event " + eventId;
                 PreparedStatement getSe = con.prepareStatement(
                     "SELECT event_title FROM staff_event WHERE event_id=?");
@@ -1559,7 +2275,6 @@ public class StaffDashboard extends JFrame {
 
                 int issued = 0, skipped = 0;
                 for (int uid : userIds) {
-                    // Skip if already issued same type
                     PreparedStatement dupChk = con.prepareStatement(
                         "SELECT COUNT(*) FROM certificate " +
                         "WHERE user_id=? AND event_id=? AND certificate_type=?");
@@ -1568,14 +2283,12 @@ public class StaffDashboard extends JFrame {
                     ResultSet dupRs = dupChk.executeQuery();
                     if (dupRs.next() && dupRs.getInt(1) > 0) { skipped++; continue; }
 
-                    // Get student name
                     PreparedStatement nm = con.prepareStatement(
                         "SELECT name FROM users WHERE user_id=?");
                     nm.setInt(1, uid);
                     ResultSet nmRs = nm.executeQuery();
                     String studentName = nmRs.next() ? nmRs.getString(1) : "Student";
 
-                    // Insert certificate — use sequence-style MAX+1
                     PreparedStatement ins = con.prepareStatement(
                         "INSERT INTO certificate(certificate_id,user_id,event_id,certificate_type," +
                         "student_name,event_name,issue_date,template_used) " +
@@ -1905,12 +2618,6 @@ public class StaffDashboard extends JFrame {
             BorderFactory.createLineBorder(CARD_BORDER,1),new EmptyBorder(4,12,4,12)));
         f.setBackground(new Color(30,16,60)); f.setForeground(TEXT_PRIMARY);
         f.setCaretColor(ACCENT_LIGHT); f.setFont(new Font("SansSerif",Font.PLAIN,13)); return f;
-    }
-    private JTextArea styledTextArea(){
-        JTextArea a=new JTextArea();
-        a.setBackground(new Color(30,16,60)); a.setForeground(TEXT_PRIMARY);
-        a.setFont(new Font("SansSerif",Font.PLAIN,13)); a.setLineWrap(true);
-        a.setBorder(BorderFactory.createLineBorder(CARD_BORDER,1)); return a;
     }
     private JScrollPane styledScroll(JPanel content){
         JScrollPane sp=new JScrollPane(content,
